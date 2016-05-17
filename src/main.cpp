@@ -12,6 +12,13 @@ constexpr u32 NumLabels { 101 };
 constexpr u16 BigEndian { 0xFEFF };
 constexpr u16 LittleEndian { 0xFFFE };
 
+struct StringEntry
+{
+    std::vector<std::string> values;
+};
+
+typedef std::map<std::string, std::string> StringMap;
+
 #pragma pack(push, 1)
 struct MSBTHeader
 {
@@ -61,7 +68,7 @@ std::string readString (u8 *buffer)
     
     std::string out;
 
-    while (ptr && *ptr) {
+    while (*ptr) {
         out.push_back(*((u8*)ptr+1));
         ptr++;
     }
@@ -187,8 +194,9 @@ void dumpFile (StringMap& stringMap, const char *filename)
         }
     }
 
+    // TODO: figure out what this is used for.
     ByteBuffer atrData;
-    atrData.writeU32BE(0x955);
+    atrData.writeU32BE(stringMap.size());
     atrData.writeU32BE(0);
 
     ByteBuffer txtData;
@@ -224,11 +232,6 @@ void dumpFile (StringMap& stringMap, const char *filename)
     txtHeader.tag[3] = '2';
     txtHeader.size = endianReverse32(txtData.size() + txtData2.size());
 
-    u32 totalSize = sizeof(ChunkHeader) * 3;
-    totalSize += lblData.size() + lblData2.size();
-    totalSize += atrData.size();
-    totalSize += txtData.size() + txtData2.size();
-    header.fileSize = endianReverse32(totalSize);
 
     FILE *file = fopen(filename, "wb");
     fwrite(&header, sizeof(header), 1, file);
@@ -246,6 +249,12 @@ void dumpFile (StringMap& stringMap, const char *filename)
     fwrite(txtData2.data(), txtData2.size(), 1, file);
     pad16(file);
 
+    u32 fileSize = endianReverse32(ftell(file));
+
+    // Seek to header.fileSize
+    fseek(file, 8+2+2+1+1+2+2, SEEK_SET);
+    fwrite(&fileSize, 4, 1, file);
+
     fclose(file);
 }
 
@@ -258,14 +267,14 @@ int main (int argc, char **argv)
 
     auto strings = parseFile(argv[1]);
 
-    strings["MmelCharaA_01_Marth"] = "The Dude";
-    strings["MmelCharaC_01_Marth"] = "MARF";
-    strings["MmelCharaN_01_Marth"] = "Marf";
-    strings["MmelCharaR_01_Marth"] = "MARF";
+    strings["MmelCharaA_09_Marth"] = "Injected Text!";
+    strings["MmelCharaC_09_Marth"] = "LUCINA";
+    strings["MmelCharaN_09_Marth"] = "Lucina";
+    strings["MmelCharaR_09_Marth"] = "LUCINA";
 
-    printf("%s\n", strings["MmelCharaA_01_Marth"].c_str());
+    printf("%s\n", strings["\x0e\x01"].c_str());
 
-    dumpFile(strings, "./melee22.msbt");
+    dumpFile(strings, "./melee2.msbt");
 
     return 0;
 }
