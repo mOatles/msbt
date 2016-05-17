@@ -29,9 +29,9 @@ struct ByteBuffer
         }
     }
 
-    void writeFatString (const std::string& str)
+    void writeFatString (const std::vector<u8>& str)
     {
-        for (char c : str) {
+        for (u8 c : str) {
             m_storage.push_back(0);
             m_storage.push_back(c);
         }

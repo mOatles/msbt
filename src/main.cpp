@@ -12,12 +12,31 @@ constexpr u32 NumLabels { 101 };
 constexpr u16 BigEndian { 0xFEFF };
 constexpr u16 LittleEndian { 0xFFFE };
 
-struct StringEntry
+struct StringValue
 {
-    std::vector<std::string> values;
+    StringValue(){}
+    StringValue (std::vector<u8> value) : value(value)
+    {
+    }
+
+    StringValue (const std::string& str)
+    {
+        value.resize(str.size());
+        memcpy(value.data(), str.data(), str.size());
+    }
+
+    StringValue (const char *str)
+    {
+        value.resize(strlen(str));
+        memcpy(value.data(), str, value.size());
+    }
+
+    std::vector<u8> value;
+    u32 hash;
+    u32 id;
 };
 
-typedef std::map<std::string, std::string> StringMap;
+typedef std::map<std::string, StringValue> StringMap;
 
 #pragma pack(push, 1)
 struct MSBTHeader
@@ -62,23 +81,23 @@ u32 hashString (const std::string& str)
     return hash;
 }
 
-std::string readString (u8 *buffer)
+std::vector<u8> readString (u8 *buffer, u8 *nextOff)
 {
-    u16 *ptr = (u16*)buffer;
-    
-    std::string out;
+    u8 *ptr = buffer;
 
-    while (*ptr) {
-        out.push_back(*((u8*)ptr+1));
-        ptr++;
+    std::vector<u8> buf;    
+
+    while (*ptr || (nextOff && ptr < nextOff)) {
+        buf.push_back(*(ptr+1));
+        ptr += 2;
     }
 
-    return out;
+    return buf;
 }
 
 StringMap parseFile (const char *filename)
 {
-    std::vector<std::string> strings;
+    std::vector<std::vector<u8>> strings;
     StringMap imtired;
 
     FILE *file = fopen(filename, "rb");
@@ -109,10 +128,19 @@ StringMap parseFile (const char *filename)
     memcpy(&numStrings, txtData, sizeof(numStrings));
     numStrings = endianReverse32(numStrings);
 
-    for (u32 i = 0; i < numStrings; ++i) {
-        u32 firstOffset;
-        memcpy(&firstOffset, txtData + 4 + 4*i, 4);
-        strings.push_back(readString(txtData + endianReverse32(firstOffset)));
+    std::vector<u32> strOffsets;
+    strOffsets.resize(numStrings);
+    memcpy(strOffsets.data(), txtData + 4, strOffsets.size() * 4);
+
+    for (u32 offIdx = 0; offIdx < numStrings; ++offIdx) {
+        u32 offset = strOffsets[offIdx];
+        u8 *nx = NULL;
+
+        if (offIdx < numStrings-1) {
+            nx = txtData + endianReverse32(strOffsets[offIdx+1]);
+        }
+
+        strings.push_back(readString(txtData + endianReverse32(offset), nx));
     }
 
     //
@@ -139,6 +167,7 @@ StringMap parseFile (const char *filename)
             memcpy(&strOffset, lblData+ptr+1+str.size(), sizeof(u32));
             strOffset = endianReverse32(strOffset);
 
+            imtired.emplace(str, strings[strOffset]);
             imtired[str] = strings[strOffset];
 
             ptr += 1 + str.size() + 4;
@@ -168,13 +197,12 @@ void dumpFile (StringMap& stringMap, const char *filename)
     header.numSections = endianReverse16(3);
 
     std::array<std::vector<std::string>, NumLabels> labelGroups;
-    std::map<std::string, u32> valueIds;
 
     u32 j = 0;
     for (auto& kv : stringMap) {
         u32 h = hashString(kv.first);
         labelGroups[h].push_back(kv.first);
-        valueIds[kv.second] = j++;
+        kv.second.id = j++;
     }
 
     ByteBuffer lblData;
@@ -188,8 +216,7 @@ void dumpFile (StringMap& stringMap, const char *filename)
 
         for (auto& label : labelGroups[i]) {
             lblData2.writeSizedString(label);
-            auto s = stringMap[label];
-            lblData2.writeU32BE(valueIds[s]);
+            lblData2.writeU32BE(stringMap[label].id);
             ptr += label.size() + 1 + 4;
         }
     }
@@ -206,9 +233,9 @@ void dumpFile (StringMap& stringMap, const char *filename)
     for (auto& kv : stringMap) {
         txtData.writeU32BE(ptr);
 
-        txtData2.writeFatString(kv.second);
+        txtData2.writeFatString(kv.second.value);
 
-        ptr += kv.second.size() * 2 + 2;
+        ptr += kv.second.value.size() * 2 + 2;
     }
 
     ChunkHeader lblHeader = {};
@@ -267,12 +294,10 @@ int main (int argc, char **argv)
 
     auto strings = parseFile(argv[1]);
 
-    strings["MmelCharaA_09_Marth"] = "Injected Text!";
-    strings["MmelCharaC_09_Marth"] = "LUCINA";
-    strings["MmelCharaN_09_Marth"] = "Lucina";
-    strings["MmelCharaR_09_Marth"] = "LUCINA";
-
-    printf("%s\n", strings["\x0e\x01"].c_str());
+    strings.emplace("MmelCharaA_09_Marth", "Warrior from a\nDoomed Future");
+    strings.emplace("MmelCharaC_09_Marth", "LUCINA");
+    strings.emplace("MmelCharaN_09_Marth", "Lucina");
+    strings.emplace("MmelCharaR_09_Marth", "LUCINA");
 
     dumpFile(strings, "./melee2.msbt");
 
