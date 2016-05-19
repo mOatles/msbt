@@ -23,23 +23,37 @@ struct StringValue
 {
     StringValue() {}
 
-    StringValue (String value) : value(value)
+    StringValue (std::vector<String> values) : values(values)
     {
+    }
+
+    StringValue (String str)
+    {
+        String currSubStr;
+
+        for (u8 c : str) {
+            if (c == 0) {
+                values.push_back(currSubStr);
+                currSubStr.clear();
+                continue;
+            }
+
+            currSubStr.push_back(c);
+        }
+
+        values.push_back(currSubStr);
     }
 
     StringValue (const std::string& str)
     {
+        String value;
         value.resize(str.size());
         memcpy(value.data(), str.data(), value.size());
+
+        values.push_back(value);
     }
 
-    StringValue (const char *str)
-    {
-        value.resize(strlen(str));
-        memcpy(value.data(), str, value.size());
-    }
-
-    String value;
+    std::vector<String> values;
     u32 id;
 };
 
@@ -87,19 +101,6 @@ u32 hashString (const std::string& str)
     return hash;
 }
 
-String readString (u8 *buffer, u8 *nextOff)
-{
-    u8 *ptr = buffer;
-    String buf;    
-
-    while (*ptr || (nextOff && ptr+2 < nextOff)) {
-        buf.push_back(*(ptr+1));
-        ptr += 2;
-    }
-
-    return buf;
-}
-
 StringMap parseFile (const char *filename)
 {
     std::vector<String> strings;
@@ -137,13 +138,21 @@ StringMap parseFile (const char *filename)
 
     for (u32 offIdx = 0; offIdx < numStrings; ++offIdx) {
         u32 offset = strOffsets[offIdx];
-        u8 *nx = NULL;
+        u8 *nextOff = NULL;
 
         if (offIdx < numStrings-1) {
-            nx = txt.data() + endianReverse32(strOffsets[offIdx+1]);
+            nextOff = txt.data() + endianReverse32(strOffsets[offIdx+1]);
         }
 
-        strings.push_back(readString(txt.data() + endianReverse32(offset), nx));
+        u8 *ptr = txt.data() + endianReverse32(offset);
+        String buf;    
+
+        while (*ptr || (nextOff && ptr+2 < nextOff)) {
+            buf.push_back(*(ptr+1));
+            ptr += 2;
+        }
+
+        strings.push_back(buf);
     }
 
     //
@@ -225,9 +234,10 @@ void dumpFile (StringMap& stringMap, const char *filename)
     for (auto& kv : stringMap) {
         txtData.writeU32BE(ptr);
 
-        txtData2.writeFatString(kv.second.value);
-
-        ptr += kv.second.value.size() * 2 + 2;
+        for (auto& value : kv.second.values) {
+            txtData2.writeFatString(value);
+            ptr += value.size() * 2 + 2;
+        }
     }
 
     ChunkHeader lblHeader = {};
@@ -298,25 +308,43 @@ int main (int argc, char **argv)
         return 1;
     }
 
-    if (((r - 1) % 2) != 0) {
-        fprintf(stderr, "Invalid JSON format: Odd number of tokens.\n");
-        return 1;
-    }
-
     for (int i = 1; i < r; i += 2) {
+        if (i + 1 >= r) {
+            fprintf(stderr, "Invalid JSON format: Odd number of tokens.\n");
+            return 1;
+        }
+
         std::string key;
-        std::string value;
 
         key.resize(t[i].end - t[i].start);
         memcpy((char*)key.data(), jsonStr.c_str() + t[i].start, key.size());
 
-        value.resize(t[i+1].end - t[i+1].start);
-        memcpy((char*)value.data(), jsonStr.c_str() + t[i+1].start, value.size());
+        if (t[i+1].type == JSMN_STRING) {
+            std::string value;
+            value.resize(t[i+1].end - t[i+1].start);
+            memcpy((char*)value.data(), jsonStr.c_str() + t[i+1].start, value.size());
 
-        printf("%s\n", value.c_str());
-        strings.emplace(key, value.c_str());
+            strings.emplace(key, value);
+        } else if (t[i+1].type == JSMN_ARRAY) {
+            auto size = t[i+1].size;
+            std::vector<String> str;
+
+            for (int j = 1; j < size+1; ++j) {
+                String value;
+                value.resize(t[i+1+j].end - t[i+1+j].start);
+                memcpy(value.data(), jsonStr.c_str() + t[i+1+j].start, value.size());
+
+                str.push_back(value);
+            }
+
+            strings.emplace(key, str);
+
+            i += size;
+        } else {
+            fprintf(stderr, "Invalid JSON value.\n");
+            return 1;
+        }
     }
-
 
     dumpFile(strings, "./melee2.msbt");
 
