@@ -10,15 +10,16 @@ usage
 
 example json
 ------------
+````json
+{
+    "MmelCharaA_09_Marth": "Warrior from a\nDoomed Future",
+    "MmelCharaC_09_Marth": "LUCINA",
+    "MmelCharaN_09_Marth": "Lucina",
+    "MmelCharaR_09_Marth": "LUCINA",
 
-	{
-	    "MmelCharaA_09_Marth": "Warrior from a\nDoomed Future",
-	    "MmelCharaC_09_Marth": "LUCINA",
-	    "MmelCharaN_09_Marth": "Lucina",
-	    "MmelCharaR_09_Marth": "LUCINA",
-
-	    "A_List": [
-	    	"Magic",
-	    	"More Magic"
-	    ]
-	}
+    "A_List": [
+    	"Magic",
+    	"More Magic"
+    ]
+}
+````
