@@ -12,7 +12,7 @@
 #include <vector>
 
 constexpr u32 HashMultiplier { 0x492 };
-constexpr u32 NumLabels { 101 };
+constexpr u32 NumLabelGroups { 101 };
 
 constexpr u16 BigEndian { 0xFEFF };
 constexpr u16 LittleEndian { 0xFFFE };
@@ -115,7 +115,7 @@ u32 hashString (const std::string& str)
     }
 
     hash &= 0xFFFFFFFF;
-    hash %= NumLabels;
+    hash %= NumLabelGroups;
 
     return hash;
 }
@@ -195,10 +195,10 @@ StringMap parseFile (const char *filename)
     u32 numLabels;
     memcpy(&numLabels, lbl.data(), sizeof(numLabels));
 
-    MSBTLabelGroup labels[NumLabels];
+    MSBTLabelGroup labels[NumLabelGroups];
     memcpy(labels, lbl.data()+4, sizeof(labels));
 
-    for (u32 lblNum = 0; lblNum < NumLabels; ++lblNum) {
+    for (u32 lblNum = 0; lblNum < NumLabelGroups; ++lblNum) {
         u32 ptr = endianReverse32(labels[lblNum].offset);
 
         for (u32 i = 0; i < endianReverse32(labels[lblNum].numLabels); ++i) {
@@ -229,7 +229,7 @@ void dumpFile (StringMap& stringMap, const char *filename)
     header.unk1 = 3;
     header.numSections = endianReverse16(3);
 
-    std::vector<std::string> labelGroups[NumLabels];
+    std::vector<std::string> labelGroups[NumLabelGroups];
 
     u32 j = 0;
     for (auto& kv : stringMap) {
@@ -240,10 +240,10 @@ void dumpFile (StringMap& stringMap, const char *filename)
 
     ByteBuffer lblData;
     ByteBuffer lblData2;
-    lblData.writeU32BE(NumLabels);
+    lblData.writeU32BE(NumLabelGroups);
 
-    u32 ptr = NumLabels * sizeof(MSBTLabelGroup) + 4;
-    for (u32 i = 0; i < NumLabels; ++i) {
+    u32 ptr = NumLabelGroups * sizeof(MSBTLabelGroup) + 4;
+    for (u32 i = 0; i < NumLabelGroups; ++i) {
         lblData.writeU32BE(labelGroups[i].size());
         lblData.writeU32BE(ptr);
 
