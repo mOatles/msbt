@@ -2,9 +2,11 @@
 
 #include "Types.h"
 
+#include <vector>
+
 u32 endianReverse32 (u32 num)
 {
-    auto bytes = (u8*)&num;
+    u8 *bytes = (u8*)&num;
 
     u32 ret;
     u8 *r = (u8*)&ret;
@@ -16,9 +18,21 @@ u32 endianReverse32 (u32 num)
     return ret;
 }
 
+void endianReverse32 (u32 *num)
+{
+    u8 *bytes = (u8*)num;
+
+    u32 tmp = *num;
+    u8 *t = (u8*)&tmp;
+    *(bytes+0) = *(t+3);
+    *(bytes+1) = *(t+2);
+    *(bytes+2) = *(t+1);
+    *(bytes+3) = *(t+0);
+}
+
 u16 endianReverse16 (u16 num)
 {
-    auto bytes = (u8*)&num;
+    u8 *bytes = (u8*)&num;
 
     u16 ret;
     u8 *r = (u8*)&ret;
@@ -28,6 +42,7 @@ u16 endianReverse16 (u16 num)
     return ret;
 }
 
+// Pad current file length to multiple of 16 bytes.
 void pad16 (FILE *file)
 {
     auto offset = ftell(file);

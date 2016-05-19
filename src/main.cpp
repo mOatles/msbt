@@ -5,6 +5,11 @@
 #include "Util.h"
 #include "Types.h"
 #include "ByteBuffer.h"
+#include "jsmn.h"
+
+#include <map>
+#include <string>
+#include <vector>
 
 constexpr u32 HashMultiplier { 0x492 };
 constexpr u32 NumLabels { 101 };
@@ -12,17 +17,20 @@ constexpr u32 NumLabels { 101 };
 constexpr u16 BigEndian { 0xFEFF };
 constexpr u16 LittleEndian { 0xFFFE };
 
+typedef std::vector<u8> String;
+
 struct StringValue
 {
-    StringValue(){}
-    StringValue (std::vector<u8> value) : value(value)
+    StringValue() {}
+
+    StringValue (String value) : value(value)
     {
     }
 
     StringValue (const std::string& str)
     {
         value.resize(str.size());
-        memcpy(value.data(), str.data(), str.size());
+        memcpy(value.data(), str.data(), value.size());
     }
 
     StringValue (const char *str)
@@ -31,8 +39,7 @@ struct StringValue
         memcpy(value.data(), str, value.size());
     }
 
-    std::vector<u8> value;
-    u32 hash;
+    String value;
     u32 id;
 };
 
@@ -56,7 +63,7 @@ struct ChunkHeader
 {
     char tag[4];
     u32 size;
-    u8 unk[8]; // probably padding, but who cares?
+    u8 padding[8];
 };
 
 struct MSBTLabelGroup
@@ -68,11 +75,10 @@ struct MSBTLabelGroup
 
 u32 hashString (const std::string& str)
 {
-    int len = str.size();
     u32 hash = 0;
 
-    for (int i = 0; i < len; ++i) {
-        hash = hash * HashMultiplier + str[i];
+    for (char c : str) {
+        hash = hash * HashMultiplier + c;
     }
 
     hash &= 0xFFFFFFFF;
@@ -81,13 +87,12 @@ u32 hashString (const std::string& str)
     return hash;
 }
 
-std::vector<u8> readString (u8 *buffer, u8 *nextOff)
+String readString (u8 *buffer, u8 *nextOff)
 {
     u8 *ptr = buffer;
+    String buf;    
 
-    std::vector<u8> buf;    
-
-    while (*ptr || (nextOff && ptr < nextOff)) {
+    while (*ptr || (nextOff && ptr+2 < nextOff)) {
         buf.push_back(*(ptr+1));
         ptr += 2;
     }
@@ -97,8 +102,8 @@ std::vector<u8> readString (u8 *buffer, u8 *nextOff)
 
 StringMap parseFile (const char *filename)
 {
-    std::vector<std::vector<u8>> strings;
-    StringMap imtired;
+    std::vector<String> strings;
+    StringMap stringMap;
 
     FILE *file = fopen(filename, "rb");
     
@@ -108,39 +113,37 @@ StringMap parseFile (const char *filename)
     fread(&header, sizeof(header), 1, file);
     fread(&lblHeader, sizeof(lblHeader), 1, file);
 
-    u8 *lblData = (u8*)malloc(endianReverse32(lblHeader.size));
-    fread(lblData, endianReverse32(lblHeader.size), 1, file);
+    String lbl(endianReverse32(lblHeader.size));
+    fread(lbl.data(), lbl.size(), 1, file);
 
     // FIXME: hack 'cause I don't give a shit about ATR1 right now.
     fseek(file, 0x23, SEEK_CUR);
 
     ChunkHeader txtHeader;
     fread(&txtHeader, sizeof(txtHeader), 1, file);
-    u8 *txtData = (u8*)malloc(endianReverse32(txtHeader.size));
-    fread(txtData, endianReverse32(txtHeader.size), 1, file);
+    String txt(endianReverse32(txtHeader.size));
+    fread(txt.data(), txt.size(), 1, file);
     fclose(file);
 
     //
     // Read string values
     //
-
     u32 numStrings;
-    memcpy(&numStrings, txtData, sizeof(numStrings));
+    memcpy(&numStrings, txt.data(), sizeof(numStrings));
     numStrings = endianReverse32(numStrings);
 
-    std::vector<u32> strOffsets;
-    strOffsets.resize(numStrings);
-    memcpy(strOffsets.data(), txtData + 4, strOffsets.size() * 4);
+    std::vector<u32> strOffsets(numStrings);
+    memcpy(strOffsets.data(), txt.data() + 4, strOffsets.size() * 4);
 
     for (u32 offIdx = 0; offIdx < numStrings; ++offIdx) {
         u32 offset = strOffsets[offIdx];
         u8 *nx = NULL;
 
         if (offIdx < numStrings-1) {
-            nx = txtData + endianReverse32(strOffsets[offIdx+1]);
+            nx = txt.data() + endianReverse32(strOffsets[offIdx+1]);
         }
 
-        strings.push_back(readString(txtData + endianReverse32(offset), nx));
+        strings.push_back(readString(txt.data() + endianReverse32(offset), nx));
     }
 
     //
@@ -149,54 +152,43 @@ StringMap parseFile (const char *filename)
 
     // XXX: not used, 'cause... yknow. no need.
     u32 numLabels;
-    memcpy(&numLabels, lblData, sizeof(numLabels));
+    memcpy(&numLabels, lbl.data(), sizeof(numLabels));
 
     MSBTLabelGroup labels[NumLabels];
-    memcpy(labels, lblData+4, sizeof(labels));
+    memcpy(labels, lbl.data()+4, sizeof(labels));
 
     for (u32 lblNum = 0; lblNum < NumLabels; ++lblNum) {
         u32 ptr = endianReverse32(labels[lblNum].offset);
 
         for (u32 i = 0; i < endianReverse32(labels[lblNum].numLabels); ++i) {
             std::string str;
-            str.resize(lblData[ptr]);
+            str.resize(lbl[ptr++]);
 
-            memcpy((char*)str.data(), lblData+ptr+1, str.size());
+            memcpy((char*)str.data(), lbl.data()+ptr, str.size());
+            ptr += str.size();
 
             u32 strOffset;
-            memcpy(&strOffset, lblData+ptr+1+str.size(), sizeof(u32));
+            memcpy(&strOffset, lbl.data()+ptr, sizeof(strOffset));
             strOffset = endianReverse32(strOffset);
+            ptr += sizeof(strOffset);
 
-            imtired.emplace(str, strings[strOffset]);
-            imtired[str] = strings[strOffset];
-
-            ptr += 1 + str.size() + 4;
+            stringMap.emplace(str, strings[strOffset]);
         }
     }
 
-    free(lblData);
-    free(txtData);
-
-    return imtired;
+    return stringMap;
 }
 
 void dumpFile (StringMap& stringMap, const char *filename)
 {
     MSBTHeader header = {};
-    header.magic[0] = 'M';
-    header.magic[1] = 's';
-    header.magic[2] = 'g';
-    header.magic[3] = 'S';
-    header.magic[4] = 't';
-    header.magic[5] = 'd';
-    header.magic[6] = 'B';
-    header.magic[7] = 'n';
+    memcpy(header.magic, "MsgStdBn", sizeof(header.magic));
     header.endianness = endianReverse16(BigEndian);
     header.charSize = 1;
     header.unk1 = 3;
     header.numSections = endianReverse16(3);
 
-    std::array<std::vector<std::string>, NumLabels> labelGroups;
+    std::vector<std::string> labelGroups[NumLabels];
 
     u32 j = 0;
     for (auto& kv : stringMap) {
@@ -239,26 +231,16 @@ void dumpFile (StringMap& stringMap, const char *filename)
     }
 
     ChunkHeader lblHeader = {};
-    lblHeader.tag[0] = 'L';
-    lblHeader.tag[1] = 'B';
-    lblHeader.tag[2] = 'L';
-    lblHeader.tag[3] = '1';
+    memcpy(lblHeader.tag, "LBL1", 4);
     lblHeader.size = endianReverse32(lblData.size() + lblData2.size());
 
     ChunkHeader atrHeader = {};
-    atrHeader.tag[0] = 'A';
-    atrHeader.tag[1] = 'T';
-    atrHeader.tag[2] = 'R';
-    atrHeader.tag[3] = '1';
+    memcpy(atrHeader.tag, "ATR1", 4);
     atrHeader.size = endianReverse32(atrData.size());
 
     ChunkHeader txtHeader = {};
-    txtHeader.tag[0] = 'T';
-    txtHeader.tag[1] = 'X';
-    txtHeader.tag[2] = 'T';
-    txtHeader.tag[3] = '2';
+    memcpy(txtHeader.tag, "TXT2", 4);
     txtHeader.size = endianReverse32(txtData.size() + txtData2.size());
-
 
     FILE *file = fopen(filename, "wb");
     fwrite(&header, sizeof(header), 1, file);
@@ -279,7 +261,8 @@ void dumpFile (StringMap& stringMap, const char *filename)
     u32 fileSize = endianReverse32(ftell(file));
 
     // Seek to header.fileSize
-    fseek(file, 8+2+2+1+1+2+2, SEEK_SET);
+    u32 fileSizeOffs = (u32)((u8*)&header.fileSize - (u8*)&header);
+    fseek(file, fileSizeOffs, SEEK_SET);
     fwrite(&fileSize, 4, 1, file);
 
     fclose(file);
@@ -294,13 +277,48 @@ int main (int argc, char **argv)
 
     auto strings = parseFile(argv[1]);
 
-    strings.emplace("MmelCharaA_09_Marth", "Warrior from a\nDoomed Future");
-    strings.emplace("MmelCharaC_09_Marth", "LUCINA");
-    strings.emplace("MmelCharaN_09_Marth", "Lucina");
-    strings.emplace("MmelCharaR_09_Marth", "LUCINA");
+    FILE *jsonFile = fopen("melee.json", "rb");
+    fseek(jsonFile, 0, SEEK_END);
+    u32 len = ftell(jsonFile);
+    fseek(jsonFile, 0, SEEK_SET);
+
+    std::string jsonStr;
+    jsonStr.resize(len);
+    fread((char*)jsonStr.data(), jsonStr.size(), 1, jsonFile);
+    fclose(jsonFile);
+
+    jsmn_parser p;
+    jsmntok_t t[1024]; // TODO: support files of any size.
+
+    jsmn_init(&p);
+    int r = jsmn_parse(&p, jsonStr.c_str(), jsonStr.size(), t, 1024);
+
+    if (t[0].type != JSMN_OBJECT) {
+        fprintf(stderr, "Invalid JSON format: Top level token must be an object.\n");
+        return 1;
+    }
+
+    if (((r - 1) % 2) != 0) {
+        fprintf(stderr, "Invalid JSON format: Odd number of tokens.\n");
+        return 1;
+    }
+
+    for (int i = 1; i < r; i += 2) {
+        std::string key;
+        std::string value;
+
+        key.resize(t[i].end - t[i].start);
+        memcpy((char*)key.data(), jsonStr.c_str() + t[i].start, key.size());
+
+        value.resize(t[i+1].end - t[i+1].start);
+        memcpy((char*)value.data(), jsonStr.c_str() + t[i+1].start, value.size());
+
+        printf("%s\n", value.c_str());
+        strings.emplace(key, value.c_str());
+    }
+
 
     dumpFile(strings, "./melee2.msbt");
 
     return 0;
 }
-

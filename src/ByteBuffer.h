@@ -2,6 +2,9 @@
 
 #include "Types.h"
 
+#include <vector>
+#include <string>
+
 struct ByteBuffer
 {
     void writeU32BE (u32 num)
@@ -22,10 +25,10 @@ struct ByteBuffer
 
     void writeSizedString (const std::string& str)
     {
-        auto s = str.size();
-        m_storage.push_back(s);
-        for (u32 i = 0; i < s; ++i) {
-            m_storage.push_back(str[i]);
+        m_storage.push_back(str.size());
+
+        for (char c : str) {
+            m_storage.push_back(c);
         }
     }
 
@@ -45,7 +48,7 @@ struct ByteBuffer
         return m_storage.size();
     }
 
-    u8 *data()
+    u8* data()
     {
         return m_storage.data();
     }

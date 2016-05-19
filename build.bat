@@ -4,5 +4,5 @@ cd "C:\code\msbt"
 
 mkdir bin
 pushd bin
-cl -Zi -Femsbt ../src/main.cpp
+cl -Zi -Femsbt -EHsc ../src/main.cpp ../src/jsmn.c
 popd
