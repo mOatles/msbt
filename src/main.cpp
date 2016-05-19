@@ -17,6 +17,8 @@ constexpr u32 NumLabels { 101 };
 constexpr u16 BigEndian { 0xFEFF };
 constexpr u16 LittleEndian { 0xFFFE };
 
+const char *MSBTMagic = "MsgStdBn";
+
 typedef std::vector<u8> String;
 
 struct StringValue
@@ -124,11 +126,24 @@ StringMap parseFile (const char *filename)
     StringMap stringMap;
 
     FILE *file = fopen(filename, "rb");
+    if (!file) {
+        fprintf(stderr, "Error reading %s: File not found!\n", filename);
+        exit(1);
+    }
     
     MSBTHeader header;
     ChunkHeader lblHeader;
 
     fread(&header, sizeof(header), 1, file);
+
+    if (strncmp((char*)header.magic, MSBTMagic, strlen(MSBTMagic)) != 0)
+    {
+        fclose(file);
+
+        fprintf(stderr, "Error reading %s: Not MSBT file!\n", filename);
+        exit(1);
+    }
+
     fread(&lblHeader, sizeof(lblHeader), 1, file);
 
     String lbl(endianReverse32(lblHeader.size));
@@ -208,7 +223,7 @@ StringMap parseFile (const char *filename)
 void dumpFile (StringMap& stringMap, const char *filename)
 {
     MSBTHeader header = {};
-    memcpy(header.magic, "MsgStdBn", sizeof(header.magic));
+    memcpy(header.magic, MSBTMagic, sizeof(header.magic));
     header.endianness = endianReverse16(BigEndian);
     header.charSize = 1;
     header.unk1 = 3;
@@ -297,14 +312,25 @@ void dumpFile (StringMap& stringMap, const char *filename)
 
 int main (int argc, char **argv)
 {
-    if (argc == 1) {
-        printf("Usage: %s input.msbt\n", argv[0]);
+    if (argc < 3) {
+        printf("Usage: %s input.json input.msbt <output.msbt>\n", argv[0]);
         return 0;
     }
 
-    auto strings = parseFile(argv[1]);
+    char *jsonFilename = argv[1];
+    char *inputFilename = argv[2];
+    char *outputFilename;
 
-    FILE *jsonFile = fopen("melee.json", "rb");
+    if (argc >= 4) {
+        outputFilename = argv[3];
+    } else {
+        outputFilename = inputFilename;
+    }
+
+    auto strings = parseFile(inputFilename);
+
+
+    FILE *jsonFile = fopen(jsonFilename, "rb");
     fseek(jsonFile, 0, SEEK_END);
     u32 len = ftell(jsonFile);
     fseek(jsonFile, 0, SEEK_SET);
@@ -363,7 +389,7 @@ int main (int argc, char **argv)
         }
     }
 
-    dumpFile(strings, "./melee2.msbt");
+    dumpFile(strings, outputFilename);
 
     return 0;
 }
