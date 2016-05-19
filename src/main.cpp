@@ -31,26 +31,43 @@ struct StringValue
     {
         String currSubStr;
 
-        for (u8 c : str) {
-            if (c == 0) {
+        auto size = str.size();
+
+        for (int i = 0; i < size; ++i) {
+            if (str[i] == 0) {
                 values.push_back(currSubStr);
                 currSubStr.clear();
                 continue;
+            }
+
+            u8 c = str[i];
+
+            if (c == '\\' && i+1 < size) {
+                switch (str[i+1]) {
+                    case 'n':
+                        c = '\n';
+                        break;
+                    case 'r':
+                        c = '\r';
+                        break;
+                    case 't':
+                        c = '\t';
+                        break;
+                    case '\\':
+                        c = '\\';
+                        break;
+                    default:
+                        c = ' '; // XXX: is there something better for this?
+                        break;
+                }
+
+                ++i; // Skip next character.
             }
 
             currSubStr.push_back(c);
         }
 
         values.push_back(currSubStr);
-    }
-
-    StringValue (const std::string& str)
-    {
-        String value;
-        value.resize(str.size());
-        memcpy(value.data(), str.data(), value.size());
-
-        values.push_back(value);
     }
 
     std::vector<String> values;
@@ -77,7 +94,7 @@ struct ChunkHeader
 {
     char tag[4];
     u32 size;
-    u8 padding[8];
+    u8 pad[8];
 };
 
 struct MSBTLabelGroup
@@ -320,9 +337,9 @@ int main (int argc, char **argv)
         memcpy((char*)key.data(), jsonStr.c_str() + t[i].start, key.size());
 
         if (t[i+1].type == JSMN_STRING) {
-            std::string value;
+            String value;
             value.resize(t[i+1].end - t[i+1].start);
-            memcpy((char*)value.data(), jsonStr.c_str() + t[i+1].start, value.size());
+            memcpy(value.data(), jsonStr.c_str() + t[i+1].start, value.size());
 
             strings.emplace(key, value);
         } else if (t[i+1].type == JSMN_ARRAY) {
