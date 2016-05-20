@@ -1,0 +1,17 @@
+{
+    "AA_00_UnicodeTest_00": "µ",
+
+    "AA_00_UnicodeTest_01": "えらん",
+
+    "AA_01_ArrayTest_00": [
+    	"zzz",
+    	"www",
+    	"Abc"
+    ],
+
+    "AA_02_EscapeCharsTest_00": [
+    	"New\nLine",
+    	"T\tab",
+    	"Carriage\rreturn? does that even work on its own??"
+    ]
+}

@@ -1,11 +1,10 @@
 #include <cstdio>
-#include <cstring>
-#include <cstdlib>
 
 #include "Util.h"
 #include "Types.h"
 #include "ByteBuffer.h"
 #include "jsmn.h"
+#include "utf8.h"
 
 #include <map>
 #include <string>
@@ -19,15 +18,50 @@ constexpr u16 LittleEndian { 0xFFFE };
 
 const char *MSBTMagic = "MsgStdBn";
 
-typedef std::vector<u8> String;
+typedef std::vector<u16> String;
+
+String json2wide (const std::string& str)
+{
+    auto size = str.size();
+    std::string buf;
+
+    for (int i = 0; i < size; ++i) {
+        u8 c = str[i];
+
+        if (c == '\\' && i+1 < size) {
+            switch (str[i+1]) {
+                case 'n':
+                    c = '\n';
+                    break;
+                case 'r':
+                    c = '\r';
+                    break;
+                case 't':
+                    c = '\t';
+                    break;
+                case '\\':
+                    c = '\\';
+                    break;
+                default:
+                    c = ' '; // XXX: is there something better for this?
+                    break;
+            }
+
+            ++i; // Skip next character.
+        }
+
+        buf.push_back(c);
+    }
+
+    String out;
+    utf8::utf8to16(buf.begin(), buf.end(), std::back_inserter(out));
+
+    return out;
+}
 
 struct StringValue
 {
     StringValue() {}
-
-    StringValue (std::vector<String> values) : values(values)
-    {
-    }
 
     StringValue (String str)
     {
@@ -42,35 +76,27 @@ struct StringValue
                 continue;
             }
 
-            u8 c = str[i];
+            u16 c = str[i];
 
-            if (c == '\\' && i+1 < size) {
-                switch (str[i+1]) {
-                    case 'n':
-                        c = '\n';
-                        break;
-                    case 'r':
-                        c = '\r';
-                        break;
-                    case 't':
-                        c = '\t';
-                        break;
-                    case '\\':
-                        c = '\\';
-                        break;
-                    default:
-                        c = ' '; // XXX: is there something better for this?
-                        break;
-                }
-
-                ++i; // Skip next character.
-            }
 
             currSubStr.push_back(c);
         }
 
         values.push_back(currSubStr);
     }
+
+    StringValue (const std::string& str)
+    {
+        values.push_back(json2wide(str));
+    }
+
+    StringValue (std::vector<std::string> v)
+    {
+        for (auto& str : v) {
+            values.push_back(json2wide(str));
+        }
+    }
+
 
     std::vector<String> values;
     u32 id;
@@ -146,7 +172,7 @@ StringMap parseFile (const char *filename)
 
     fread(&lblHeader, sizeof(lblHeader), 1, file);
 
-    String lbl(endianReverse32(lblHeader.size));
+    std::vector<u8> lbl(endianReverse32(lblHeader.size));
     fread(lbl.data(), lbl.size(), 1, file);
 
     // FIXME: hack 'cause I don't give a shit about ATR1 right now.
@@ -154,7 +180,7 @@ StringMap parseFile (const char *filename)
 
     ChunkHeader txtHeader;
     fread(&txtHeader, sizeof(txtHeader), 1, file);
-    String txt(endianReverse32(txtHeader.size));
+    std::vector<u8> txt(endianReverse32(txtHeader.size));
     fread(txt.data(), txt.size(), 1, file);
     fclose(file);
 
@@ -177,10 +203,10 @@ StringMap parseFile (const char *filename)
         }
 
         u8 *ptr = txt.data() + endianReverse32(offset);
-        String buf;    
+        String buf;
 
         while (*ptr || (nextOff && ptr+2 < nextOff)) {
-            buf.push_back(*(ptr+1));
+            buf.push_back(endianReverse16(*(u16*)ptr));
             ptr += 2;
         }
 
@@ -267,7 +293,7 @@ void dumpFile (StringMap& stringMap, const char *filename)
         txtData.writeU32BE(ptr);
 
         for (auto& value : kv.second.values) {
-            txtData2.writeFatString(value);
+            txtData2.writeWideString(value);
             ptr += value.size() * 2 + 2;
         }
     }
@@ -363,19 +389,19 @@ int main (int argc, char **argv)
         memcpy((char*)key.data(), jsonStr.c_str() + t[i].start, key.size());
 
         if (t[i+1].type == JSMN_STRING) {
-            String value;
+            std::string value;
             value.resize(t[i+1].end - t[i+1].start);
-            memcpy(value.data(), jsonStr.c_str() + t[i+1].start, value.size());
+            memcpy((char*)value.data(), jsonStr.c_str() + t[i+1].start, value.size());
 
             strings.emplace(key, value);
         } else if (t[i+1].type == JSMN_ARRAY) {
             auto size = t[i+1].size;
-            std::vector<String> str;
+            std::vector<std::string> str;
 
             for (int j = 1; j < size+1; ++j) {
-                String value;
+                std::string value;
                 value.resize(t[i+1+j].end - t[i+1+j].start);
-                memcpy(value.data(), jsonStr.c_str() + t[i+1+j].start, value.size());
+                memcpy((char*)value.data(), jsonStr.c_str() + t[i+1+j].start, value.size());
 
                 str.push_back(value);
             }

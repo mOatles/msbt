@@ -23,6 +23,13 @@ struct ByteBuffer
         m_storage.push_back(fml[0]);
     }
 
+    void writeU16LE (u16 num)
+    {
+        u8 *fml = (u8*)&num;
+        m_storage.push_back(fml[0]);
+        m_storage.push_back(fml[1]);
+    }
+
     void writeSizedString (const std::string& str)
     {
         m_storage.push_back(str.size());
@@ -32,11 +39,10 @@ struct ByteBuffer
         }
     }
 
-    void writeFatString (const std::vector<u8>& str)
+    void writeWideString (const std::vector<u16>& str)
     {
-        for (u8 c : str) {
-            m_storage.push_back(0);
-            m_storage.push_back(c);
+        for (u16 c : str) {
+            writeU16BE(c);
         }
 
         m_storage.push_back(0);
